@@ -1,10 +1,14 @@
+import threading
 import time
+from pathlib import Path
 
 import adafruit_dht
 import board
 import spidev
 from gpiozero import Button, DigitalOutputDevice, TonalBuzzer
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image
+
+from alarm.audio import Melody
 
 COMMAND_DICT: dict[str, int] = {
     "display_on": 0xAF,  # Turn the display on
@@ -65,6 +69,44 @@ class AlarmBuzzer:
     def __init__(self, pin: int | str):
         self.tonal_buzzer = TonalBuzzer(pin)
         self.tonal_buzzer.stop()
+        self._play_lock = threading.Lock()
+        self._stop = True
+
+    def play_melody(self, melody: Path | Melody):
+        """
+        Play a melody from a Melody object.
+
+        Should be called in a separate process and terminated.
+        """
+        melody = Melody(melody) if isinstance(melody, Path) else melody
+        with self._play_lock:
+            self._stop = False
+
+        while True:
+            for note in melody.notes:
+                with self._play_lock:
+                    if self._stop:
+                        return
+                if note.pitch is not None:
+                    pitch = note.pitch
+                    while pitch.midi < self.tonal_buzzer.min_tone.midi:
+                        pitch = pitch.up(12)
+                    while pitch.midi > self.tonal_buzzer.max_tone.midi:
+                        pitch = pitch.down(12)
+                    self.tonal_buzzer.play(pitch)
+                else:
+                    self.tonal_buzzer.stop()
+                time.sleep(note.duration * 0.8)
+                with self._play_lock:
+                    if self._stop:
+                        return
+                    self.tonal_buzzer.stop()
+                time.sleep(note.duration * 0.2)
+
+    def stop(self):
+        with self._play_lock:
+            self._stop = True
+            self.tonal_buzzer.stop()
 
 
 class DHT11Sensor:
@@ -76,6 +118,10 @@ class DHT11Sensor:
         self.sensor = adafruit_dht.DHT11(board.D19)
 
     def read(self) -> tuple[float | None, float | None]:
+        try:
+            self.sensor.measure()
+        except RuntimeError:
+            return None, None
         return self.sensor.temperature, self.sensor.humidity
 
 
@@ -135,7 +181,7 @@ class AlarmDisplay:
         self.exec_data(bytes([0x00] * (self.WIDTH * self.PAGES)))
 
     def dim_level(self, level: int):
-        if level not in range(0, 1):
+        if level < 0 or level > 1:
             raise ValueError("Level must be 0 or 1")
 
         if level == 0:
@@ -145,7 +191,7 @@ class AlarmDisplay:
         else:
             self.exec_cmd(COMMAND_DICT["set_contrast"], bytes([0x7F]))
             self.exec_cmd(COMMAND_DICT["pre-charge_period"], bytes([0xF1]))
-            self.exec_cmd(COMMAND_DICT["VCOMH_deselect_level"], bytes([0x20]))
+            self.exec_cmd(COMMAND_DICT["VCOMH_deselect_level"], bytes([0x30]))
 
     def write_image(self, image: Image.Image) -> None:
         if image.size != (self.WIDTH, self.HEIGHT):

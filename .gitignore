@@ -1,5 +1,9 @@
+# Hidden for potential copyright violations
+alarm/assets/tetris.mid
+
 .vscode
 .vscode/*
+*.lgd-nfy0
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
