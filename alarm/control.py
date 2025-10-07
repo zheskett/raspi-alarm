@@ -87,15 +87,15 @@ class AlarmBuzzer:
                 with self._play_lock:
                     if self._stop:
                         return
-                if note.pitch is not None:
-                    pitch = note.pitch
-                    while pitch.midi < self.tonal_buzzer.min_tone.midi:
-                        pitch = pitch.up(12)
-                    while pitch.midi > self.tonal_buzzer.max_tone.midi:
-                        pitch = pitch.down(12)
-                    self.tonal_buzzer.play(pitch)
-                else:
-                    self.tonal_buzzer.stop()
+                    if note.pitch is not None:
+                        pitch = note.pitch
+                        while pitch.midi < self.tonal_buzzer.min_tone.midi:
+                            pitch = pitch.up(12)
+                        while pitch.midi > self.tonal_buzzer.max_tone.midi:
+                            pitch = pitch.down(12)
+                        self.tonal_buzzer.play(pitch)
+                    else:
+                        self.tonal_buzzer.stop()
                 time.sleep(note.duration * 0.8)
                 with self._play_lock:
                     if self._stop:

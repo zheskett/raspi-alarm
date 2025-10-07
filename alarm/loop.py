@@ -63,7 +63,6 @@ def alarm_loop(stdscr: curses.window):
         args=(Path("./alarm/assets/tetris.mid"),),
         daemon=True,
     )
-    song_thread.start()
 
     my_temp, my_hum = 0, 0
     my_weather = None
@@ -73,8 +72,8 @@ def alarm_loop(stdscr: curses.window):
             b.update_press()
 
         if buttons["select"].just_pressed:
-            buzzer_r.stop()
             if song_thread.is_alive():
+                buzzer_r.stop()
                 song_thread.join()
             else:
                 song_thread = threading.Thread(
@@ -123,9 +122,12 @@ def alarm_loop(stdscr: curses.window):
             my_weather = weather
             weather_lock.release()
         if my_weather is not None:
-            weather_str = f"{my_weather.temperature}°F"
-            weather_len = int(img_draw.textlength(weather_str, small_font))
-            img_draw.text((display.WIDTH - weather_len, 20), weather_str, 1, small_font)
+            high = my_weather.daily_forecasts[0].highest_temperature
+            low = my_weather.daily_forecasts[0].lowest_temperature
+            high_low = f"H:{high}°/L:{low}°"
+            temp_str = f"{my_weather.daily_forecasts[0].hourly_forecasts[now.hour].temperature}°F"
+            img_draw.text((0, 30), temp_str, 1, small_font)
+            img_draw.text((0, 40), high_low, 1, small_font)
 
         display.write_image(time_img)
 
@@ -135,7 +137,7 @@ def alarm_loop(stdscr: curses.window):
             7,
             0,
             (
-                f"Weather: {my_weather.location}\n"
+                f"Weather: {my_weather.daily_forecasts[0].highest_temperature}°F\n"
                 if my_weather is not None
                 else "Weather: N/A\n"
             ),
@@ -150,6 +152,7 @@ def alarm_loop(stdscr: curses.window):
         time.sleep(0.05)
 
     if song_thread.is_alive():
+        buzzer_r.stop()
         song_thread.join()
     dht_sensor.sensor.exit()
     display.close()
