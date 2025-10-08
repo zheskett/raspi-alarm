@@ -12,6 +12,7 @@ from alarm.weather import get_weather
 
 DHT_UPDATE_INTERVAL = 5
 WEATHER_UPDATE_INTERVAL = 1800
+SCREEN_RESET_INTERVAL_MIN = 10  # in minutes
 USE_PURDUE_LOCATION = True
 
 now = datetime.now()
@@ -26,7 +27,9 @@ temp, hum = 0, 0
 def alarm_loop(stdscr: curses.window):
 
     location = (
-        (geocoder.ip("me").latlng) if not USE_PURDUE_LOCATION else [40.4237, -86.9212]
+        (lambda l: f"{l.city}, {l.state}")(geocoder.ip("me"))
+        if not USE_PURDUE_LOCATION
+        else "West Lafayette, Indiana"
     )
     stdscr.addstr(f"Location: {location}\n")
 
@@ -66,6 +69,8 @@ def alarm_loop(stdscr: curses.window):
 
     my_temp, my_hum = 0, 0
     my_weather = None
+
+    has_reset_screen = False
 
     while True:
         for b in buttons.values():
@@ -125,10 +130,22 @@ def alarm_loop(stdscr: curses.window):
             high = my_weather.daily_forecasts[0].highest_temperature
             low = my_weather.daily_forecasts[0].lowest_temperature
             high_low = f"H:{high}°/L:{low}°"
-            temp_str = f"{my_weather.daily_forecasts[0].hourly_forecasts[now.hour].temperature}°F"
-            img_draw.text((0, 30), temp_str, 1, small_font)
+            try:
+                # Hourly forecast is every 3 hours
+                temp_str = f"{my_weather.daily_forecasts[0].hourly_forecasts[now.hour // 3].temperature}°F"
+                img_draw.text((0, 30), temp_str, 1, small_font)
+            except IndexError:
+                pass
             img_draw.text((0, 40), high_low, 1, small_font)
 
+        # Every SCREEN_RESET_INTERVAL_MIN minutes, reset the screen
+        if now.minute % SCREEN_RESET_INTERVAL_MIN == 0 and not has_reset_screen:
+            display.reinitialize()
+            has_reset_screen = True
+        elif now.minute % SCREEN_RESET_INTERVAL_MIN != 0:
+            has_reset_screen = False
+
+        # Update Display
         display.write_image(time_img)
 
         # Terminal Output

@@ -138,33 +138,13 @@ class AlarmDisplay:
     def __init__(self, dc_pin: int | str, rst_pin: int | str):
         self.spi = spidev.SpiDev()
         self.spi.open(0, 0)
-        self.spi.max_speed_hz = 8_000_000
+        self.spi.max_speed_hz = 1_000_000
         self.spi.mode = 0b00
         self.dc = DigitalOutputDevice(dc_pin, initial_value=False)
         self.rst = DigitalOutputDevice(rst_pin, active_high=False, initial_value=False)
+        self._dim = 0
 
-        self.reset()
-
-        # region: Initialize commands
-        self.exec_cmd(COMMAND_DICT["display_off"])
-        self.exec_cmd(COMMAND_DICT["multiplex_ratio"], bytes([0x3F]))
-        self.exec_cmd(COMMAND_DICT["display_offset"], bytes([0x00]))
-        self.exec_cmd(COMMAND_DICT["start_line_0"])
-        self.exec_cmd(COMMAND_DICT["segment_remap_normal"])
-        self.exec_cmd(COMMAND_DICT["com_scan_inc"])
-        self.exec_cmd(COMMAND_DICT["com_pins"], bytes([0x12]))
-        self.exec_cmd(COMMAND_DICT["use_ram"])
-        self.exec_cmd(COMMAND_DICT["normal_display"])
-        self.exec_cmd(COMMAND_DICT["osc_freq"], bytes([0x80]))
-        self.exec_cmd(COMMAND_DICT["charge_pump"], bytes([0x14]))
-        self.dim_level(0)
-        self.exec_cmd(COMMAND_DICT["addressing_mode"], bytes([0x00]))
-        self.exec_cmd(COMMAND_DICT["segment_remap_mirror_x"])
-        self.exec_cmd(COMMAND_DICT["com_scan_dec"])
-        self.exec_cmd(COMMAND_DICT["column_addr"], bytes([0x00, self.WIDTH - 1]))
-        self.exec_cmd(COMMAND_DICT["page_addr"], bytes([0x00, self.PAGES - 1]))
-        self.exec_cmd(COMMAND_DICT["display_on"])
-        # endregion
+        self.reinitialize()
 
     def exec_cmd(self, cmd: int, args: bytes = bytes()) -> None:
         self.dc.off()
@@ -180,9 +160,11 @@ class AlarmDisplay:
     def clear_screen(self) -> None:
         self.exec_data(bytes([0x00] * (self.WIDTH * self.PAGES)))
 
-    def dim_level(self, level: int):
+    def set_dim_level(self, level: int):
         if level < 0 or level > 1:
             raise ValueError("Level must be 0 or 1")
+
+        self._dim = level
 
         if level == 0:
             self.exec_cmd(COMMAND_DICT["set_contrast"], bytes([0x00]))
@@ -214,6 +196,30 @@ class AlarmDisplay:
         time.sleep(0.005)
         self.rst.off()
         time.sleep(0.02)
+
+    def reinitialize(self) -> None:
+        self.reset()
+
+        # region: Initialize commands
+        self.exec_cmd(COMMAND_DICT["display_off"])
+        self.exec_cmd(COMMAND_DICT["multiplex_ratio"], bytes([0x3F]))
+        self.exec_cmd(COMMAND_DICT["display_offset"], bytes([0x00]))
+        self.exec_cmd(COMMAND_DICT["start_line_0"])
+        self.exec_cmd(COMMAND_DICT["segment_remap_normal"])
+        self.exec_cmd(COMMAND_DICT["com_scan_inc"])
+        self.exec_cmd(COMMAND_DICT["com_pins"], bytes([0x12]))
+        self.exec_cmd(COMMAND_DICT["use_ram"])
+        self.exec_cmd(COMMAND_DICT["normal_display"])
+        self.exec_cmd(COMMAND_DICT["osc_freq"], bytes([0x80]))
+        self.exec_cmd(COMMAND_DICT["charge_pump"], bytes([0x14]))
+        self.set_dim_level(self._dim)
+        self.exec_cmd(COMMAND_DICT["addressing_mode"], bytes([0x00]))
+        self.exec_cmd(COMMAND_DICT["segment_remap_mirror_x"])
+        self.exec_cmd(COMMAND_DICT["com_scan_dec"])
+        self.exec_cmd(COMMAND_DICT["column_addr"], bytes([0x00, self.WIDTH - 1]))
+        self.exec_cmd(COMMAND_DICT["page_addr"], bytes([0x00, self.PAGES - 1]))
+        self.exec_cmd(COMMAND_DICT["display_on"])
+        # endregion
 
     def close(self) -> None:
         self.exec_cmd(COMMAND_DICT["display_off"])
