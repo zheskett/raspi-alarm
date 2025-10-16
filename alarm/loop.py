@@ -2,6 +2,7 @@ import asyncio
 import curses
 import threading
 from datetime import datetime
+from enum import IntEnum, StrEnum, auto
 from pathlib import Path
 
 import geocoder
@@ -15,6 +16,46 @@ WEATHER_UPDATE_INTERVAL = 1800
 SCREEN_RESET_INTERVAL_MIN = 10  # in minutes
 USE_PURDUE_LOCATION = True
 
+SOUND_PATH = Path("./alarm/assets/tetris.mid")
+FONT_PATH = Path("./alarm/assets/bedstead.regular.otf")
+
+
+class MenuState(StrEnum):
+    MAIN = auto()
+    SETTINGS = auto()
+    SET_ALARM_TIME = auto()
+
+
+class CursorPos(IntEnum):
+    @classmethod
+    def max(cls):
+        return max(item.value for item in cls)
+
+    @classmethod
+    def min(cls):
+        return min(item.value for item in cls)
+
+    @classmethod
+    def clamp(cls, value: int):
+        return max(cls.min(), min(cls.max(), value))
+
+
+class MainPos(CursorPos):
+    SETTINGS = 0
+    SET_ALARM_TIME = 1
+
+
+class SettingsPos(CursorPos):
+    SET_BRIGHTNESS = 0
+    BACK = 1
+
+
+class AlarmTimePos(CursorPos):
+    HOUR = 0
+    MINUTE = 1
+    AM_PM = 2
+
+
 now = datetime.now()
 dht_sensor = DHT11Sensor()
 temp_hum_lock = threading.Lock()
@@ -25,6 +66,17 @@ temp, hum = 0, 0
 
 
 def alarm_loop(stdscr: curses.window):
+    has_reset_screen = False
+    alarm_played_recently = False
+    alarm_active = True
+
+    my_temp, my_hum = 0, 0
+    my_weather = None
+
+    state = MenuState.MAIN
+    cursor = MainPos.SETTINGS
+
+    alarm_time = (10, 11, "AM")  # hour, minute, am/pm
 
     location = (
         (lambda l: f"{l.city}, {l.state}")(geocoder.ip("me"))
@@ -38,8 +90,10 @@ def alarm_loop(stdscr: curses.window):
 
     time_img = Image.new("1", (display.WIDTH, display.HEIGHT), 0)
     img_draw = ImageDraw.Draw(time_img)
-    big_font = ImageFont.truetype(Path("./alarm/assets/bedstead.regular.otf"), 22)
-    small_font = ImageFont.truetype(Path("./alarm/assets/bedstead.regular.otf"), 10)
+    big_font = ImageFont.truetype(FONT_PATH, 22)
+    small_font = ImageFont.truetype(FONT_PATH, 10)
+    bell_on_icon = Image.open(Path("./alarm/assets/bell_on.png")).convert("1")
+    bell_off_icon = Image.open(Path("./alarm/assets/bell_off.png")).convert("1")
 
     buttons: dict[str, AlarmButton] = {
         "enable_alarm": AlarmButton(22),
@@ -48,8 +102,8 @@ def alarm_loop(stdscr: curses.window):
         "left": AlarmButton(21),
     }
 
-    buzzer_r = AlarmBuzzer(26)
-    buzzer_l = AlarmBuzzer(17)
+    main_buzzer = AlarmBuzzer(26)
+    secondary_buzzer = AlarmBuzzer(17)
 
     now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     stdscr.nodelay(True)
@@ -62,28 +116,29 @@ def alarm_loop(stdscr: curses.window):
     weather_thread.start()
 
     song_thread = threading.Thread(
-        target=buzzer_r.play_melody,
-        args=(Path("./alarm/assets/tetris.mid"),),
+        target=main_buzzer.play_melody,
+        args=(SOUND_PATH,),
         daemon=True,
     )
-
-    my_temp, my_hum = 0, 0
-    my_weather = None
-
-    has_reset_screen = False
 
     while True:
         for b in buttons.values():
             b.update_press()
 
+        # Handle Buttons
+        if buttons["enable_alarm"].just_pressed:
+            alarm_active = not alarm_active
+            if not alarm_active and song_thread.is_alive():
+                main_buzzer.stop()
+                song_thread.join()
         if buttons["select"].just_pressed:
             if song_thread.is_alive():
-                buzzer_r.stop()
+                main_buzzer.stop()
                 song_thread.join()
             else:
                 song_thread = threading.Thread(
-                    target=buzzer_r.play_melody,
-                    args=(Path("./alarm/assets/tetris.mid"),),
+                    target=main_buzzer.play_melody,
+                    args=(SOUND_PATH,),
                     daemon=True,
                 )
                 song_thread.start()
@@ -138,6 +193,12 @@ def alarm_loop(stdscr: curses.window):
                 pass
             img_draw.text((0, 40), high_low, 1, small_font)
 
+        # Display Alarm Status
+        if alarm_active:
+            img_draw.bitmap((112, 48), bell_on_icon, fill=1)
+        else:
+            img_draw.bitmap((112, 48), bell_off_icon, fill=1)
+
         # Every SCREEN_RESET_INTERVAL_MIN minutes, reset the screen
         if now.minute % SCREEN_RESET_INTERVAL_MIN == 0 and not has_reset_screen:
             display.reinitialize()
@@ -147,6 +208,23 @@ def alarm_loop(stdscr: curses.window):
 
         # Update Display
         display.write_image(time_img)
+
+        # Do alarm
+        if (
+            alarm_active
+            and (hour, minute, am_pm) == alarm_time
+            and not alarm_played_recently
+        ):
+            if not song_thread.is_alive():
+                song_thread = threading.Thread(
+                    target=main_buzzer.play_melody,
+                    args=(SOUND_PATH,),
+                    daemon=True,
+                )
+                song_thread.start()
+            alarm_played_recently = True
+        elif (hour, minute, am_pm) != alarm_time:
+            alarm_played_recently = False
 
         # Terminal Output
         stdscr.addstr(6, 0, f"Time: {now.strftime('%I:%M:%S %p')}\n")
@@ -159,6 +237,11 @@ def alarm_loop(stdscr: curses.window):
                 else "Weather: N/A\n"
             ),
         )
+        stdscr.addstr(8, 0, f"Alarm {'On ' if alarm_active else 'Off'}\n")
+        for bname, b in buttons.items():
+            stdscr.addstr(
+                9 + list(buttons.keys()).index(bname), 0, f"{bname}: {b.down}\n"
+            )
         try:
             key = stdscr.getkey()
             if key == "\n":
@@ -169,7 +252,7 @@ def alarm_loop(stdscr: curses.window):
         time.sleep(0.05)
 
     if song_thread.is_alive():
-        buzzer_r.stop()
+        main_buzzer.stop()
         song_thread.join()
     dht_sensor.sensor.exit()
     display.close()

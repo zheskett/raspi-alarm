@@ -6,6 +6,7 @@ import adafruit_dht
 import board
 import spidev
 from gpiozero import Button, DigitalOutputDevice, TonalBuzzer
+from gpiozero.tones import Tone
 from PIL import Image
 
 from alarm.audio import Melody
@@ -67,7 +68,7 @@ class AlarmBuzzer:
     """
 
     def __init__(self, pin: int | str):
-        self.tonal_buzzer = TonalBuzzer(pin)
+        self.tonal_buzzer = TonalBuzzer(pin, mid_tone=Tone(1200), octaves=3)
         self.tonal_buzzer.stop()
         self._play_lock = threading.Lock()
         self._stop = True
@@ -86,6 +87,7 @@ class AlarmBuzzer:
             for note in melody.notes:
                 with self._play_lock:
                     if self._stop:
+                        self.tonal_buzzer.stop()
                         return
                     if note.pitch is not None:
                         pitch = note.pitch
