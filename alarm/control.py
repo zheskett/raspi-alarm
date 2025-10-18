@@ -100,15 +100,33 @@ class AlarmBuzzer:
                         self.tonal_buzzer.stop()
                 time.sleep(note.duration * 0.8)
                 with self._play_lock:
+                    self.tonal_buzzer.stop()
                     if self._stop:
                         return
-                    self.tonal_buzzer.stop()
                 time.sleep(note.duration * 0.2)
+
+    def thread_play_beep(self, tone: Tone | int | float | str):
+        tone_len_ms = 200
+        tone_start_ns = 0
+        with self._play_lock:
+            self._stop = False
+            self.tonal_buzzer.play(tone)
+            tone_start_ns = time.time_ns()
+        while True:
+            with self._play_lock:
+                if self._stop:
+                    self.tonal_buzzer.stop()
+                    return
+            current_ns = time.time_ns()
+            if current_ns - tone_start_ns >= tone_len_ms * 1e6:
+                break
+            time.sleep(0.01)
+        self.stop()
 
     def stop(self):
         with self._play_lock:
-            self._stop = True
             self.tonal_buzzer.stop()
+            self._stop = True
 
 
 class DHT11Sensor:
@@ -140,7 +158,7 @@ class AlarmDisplay:
     def __init__(self, dc_pin: int | str, rst_pin: int | str):
         self.spi = spidev.SpiDev()
         self.spi.open(0, 0)
-        self.spi.max_speed_hz = 1_000_000
+        self.spi.max_speed_hz = 500_000
         self.spi.mode = 0b00
         self.dc = DigitalOutputDevice(dc_pin, initial_value=False)
         self.rst = DigitalOutputDevice(rst_pin, active_high=False, initial_value=False)
@@ -163,8 +181,7 @@ class AlarmDisplay:
         self.exec_data(bytes([0x00] * (self.WIDTH * self.PAGES)))
 
     def set_dim_level(self, level: int):
-        if level < 0 or level > 1:
-            raise ValueError("Level must be 0 or 1")
+        level = max(0, min(1, level))
 
         self._dim = level
 
@@ -176,6 +193,9 @@ class AlarmDisplay:
             self.exec_cmd(COMMAND_DICT["set_contrast"], bytes([0x7F]))
             self.exec_cmd(COMMAND_DICT["pre-charge_period"], bytes([0xF1]))
             self.exec_cmd(COMMAND_DICT["VCOMH_deselect_level"], bytes([0x30]))
+
+    def get_dim_level(self) -> int:
+        return self._dim
 
     def write_image(self, image: Image.Image) -> None:
         if image.size != (self.WIDTH, self.HEIGHT):
