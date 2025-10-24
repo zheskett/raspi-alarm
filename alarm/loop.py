@@ -53,7 +53,8 @@ class MainPos(CursorPos):
 
 class SettingsPos(CursorPos):
     SET_BRIGHTNESS = 0
-    BACK = 1
+    DISPLAY_OFF = 1
+    BACK = 2
 
 
 class AlarmTimePos(CursorPos):
@@ -168,7 +169,10 @@ def alarm_loop(stdscr: curses.window):
                     if cursor == SettingsPos.BACK:
                         state = MenuState.MAIN
                         cursor = MainPos.NO_SELECTION
-                    elif cursor == SettingsPos.SET_BRIGHTNESS:
+                    elif (
+                        cursor == SettingsPos.SET_BRIGHTNESS
+                        or cursor == SettingsPos.DISPLAY_OFF
+                    ):
                         in_select_mode = not in_select_mode
 
                 elif state == MenuState.SET_ALARM_TIME:
@@ -327,9 +331,9 @@ def alarm_loop(stdscr: curses.window):
         elif state == MenuState.SETTINGS:
             img_draw.text((0, 0), "Settings", 1, big_font)
 
-            setting_items = ["Set Brightness", "Back"]
+            setting_items = ["Set Brightness", "Display Off", "Back"]
             for i, item in enumerate(setting_items):
-                y_pos = 30 + i * 12
+                y_pos = 28 + i * 12
                 prefix = "> " if cursor == i else "  "
                 if i != cursor or not in_select_mode or blink_state:
                     img_draw.text((0, y_pos), f"{prefix}{item}", 1, small_font)
@@ -383,7 +387,14 @@ def alarm_loop(stdscr: curses.window):
             has_reset_screen = False
 
         # Update Display
-        display.write_image(time_img)
+        if (
+            state == MenuState.SETTINGS
+            and cursor == SettingsPos.DISPLAY_OFF
+            and in_select_mode
+        ):
+            display.clear_screen()
+        else:
+            display.write_image(time_img)
 
         # Do alarm
         if (
