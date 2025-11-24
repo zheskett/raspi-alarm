@@ -411,12 +411,16 @@ def alarm_loop(stdscr: curses.window):
                     daemon=True,
                 )
                 song_thread.start()
-            alarm_played_recently = True
-            song_start_time = now
+                alarm_played_recently = True
+                song_start_time = now
         elif (hour, minute, am_pm) != alarm_time:
             alarm_played_recently = False
             # Stop alarm after 15 minutes
-            if song_start_time and (now - song_start_time).total_seconds() > 15 * 60 and song_thread.is_alive():
+            if (
+                song_start_time
+                and (now - song_start_time).total_seconds() > 15 * 60
+                and song_thread.is_alive()
+            ):
                 main_buzzer.stop()
                 song_thread.join()
                 song_start_time = None
