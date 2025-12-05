@@ -145,11 +145,13 @@ def alarm_loop(stdscr: curses.window):
         if buttons["enable_alarm"].just_pressed:
             alarm_active = not alarm_active
             if not alarm_active and song_thread.is_alive():
+                song_start_time = None
                 main_buzzer.stop()
                 song_thread.join()
 
         if buttons["select"].just_pressed:
             if song_thread.is_alive():
+                song_start_time = None
                 main_buzzer.stop()
                 song_thread.join()
             else:
